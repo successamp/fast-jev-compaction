@@ -9,7 +9,7 @@ import type {
 } from 'claude-code';
 
 import { compact, reductionRatio, resolveOptions } from '../src/compact.js';
-import { buildJevRequest, DEFAULT_MODEL, parseJevResponse } from '../src/request.js';
+import { buildJevRequest, parseJevResponse } from '../src/request.js';
 import type {
   CompactOptions,
   CompactResult,
@@ -19,10 +19,16 @@ import type {
   ToolUse,
 } from '../src/types.js';
 
+/** Jev via OpenRouter: decisions endpoint, versioned slug (`jev-latest` 404s there). */
+export const OPENROUTER_DECISIONS_URL = 'https://openrouter.ai/api/alpha/decisions';
+export const OPENROUTER_JEV_MODEL = 'typesafe/jev-1.13';
+export const API_KEY_ENV_VARS = ['OPENROUTER_ED', 'OPENROUTER_API_KEY', 'TYPESAFE_API_KEY'] as const;
+
 const HOOK_DEFAULTS = {
   compactAtPercent: 60,
   minReductionRatio: 0.25,
-  model: DEFAULT_MODEL,
+  model: OPENROUTER_JEV_MODEL,
+  baseUrl: OPENROUTER_DECISIONS_URL,
 };
 
 export type HookFetchInit = {
@@ -45,6 +51,7 @@ export type HookConfig = CompactOptions & {
   compactAtPercent: number;
   minReductionRatio: number;
   model: string;
+  baseUrl: string;
 };
 
 function optionNumber(options: PluginOptions, key: string, fallback: number): number {
@@ -79,6 +86,7 @@ export function resolveHookConfig(options: PluginOptions): HookConfig {
       HOOK_DEFAULTS.minReductionRatio,
     ),
     model: optionString(options, 'model') ?? HOOK_DEFAULTS.model,
+    baseUrl: optionString(options, 'baseUrl') ?? HOOK_DEFAULTS.baseUrl,
   };
   const apiKey = optionString(options, 'apiKey');
   if (apiKey) config.apiKey = apiKey;
@@ -88,10 +96,15 @@ export function resolveHookConfig(options: PluginOptions): HookConfig {
 }
 
 /** A `JevAsker` over the engine's `$.http.fetch`. */
-export function jevAsker(fetchFn: HookFetch, apiKey: string, model: string): JevAsker {
+export function jevAsker(
+  fetchFn: HookFetch,
+  apiKey: string,
+  model: string,
+  baseUrl?: string,
+): JevAsker {
   return {
     async ask(state, questions) {
-      const request = buildJevRequest({ apiKey, model }, state, questions);
+      const request = buildJevRequest({ apiKey, model, baseUrl }, state, questions);
       const response = await fetchFn(request.url, {
         method: request.method,
         headers: request.headers,
@@ -167,8 +180,12 @@ export async function compactSession(
   config: HookConfig,
   fetchFn: HookFetch,
 ): Promise<SessionCompaction> {
-  if (!config.apiKey) throw new Error('TYPESAFE_API_KEY is not configured');
-  const result = await compact(messages, jevAsker(fetchFn, config.apiKey, config.model), config);
+  if (!config.apiKey) throw new Error(`${API_KEY_ENV_VARS.join('/')} is not configured`);
+  const result = await compact(
+    messages,
+    jevAsker(fetchFn, config.apiKey, config.model, config.baseUrl),
+    config,
+  );
   return { result, messages: toSessionMessages(messages, result.messages) };
 }
 
@@ -232,13 +249,17 @@ async function getApiKey(
   config: HookConfig,
 ): Promise<string | undefined> {
   if (config.apiKey) return config.apiKey;
-  const fromEnv = await $.env.get('TYPESAFE_API_KEY');
-  if (fromEnv) return fromEnv;
+  for (const name of API_KEY_ENV_VARS) {
+    const fromEnv = await $.env.get(name);
+    if (fromEnv) return fromEnv;
+  }
   const settings = await $.settings.read();
   const env = settings['env'];
   if (env && typeof env === 'object') {
-    const value = (env as Record<string, unknown>)['TYPESAFE_API_KEY'];
-    if (typeof value === 'string' && value) return value;
+    for (const name of API_KEY_ENV_VARS) {
+      const value = (env as Record<string, unknown>)[name];
+      if (typeof value === 'string' && value) return value;
+    }
   }
   return undefined;
 }

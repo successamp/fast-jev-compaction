@@ -7,7 +7,7 @@
     "apiKey": {
       "type": "string",
       "title": "TypeSafe API key",
-      "description": "TypeSafe API key. Leave unset to use TYPESAFE_API_KEY.",
+      "description": "OpenRouter (or TypeSafe) API key. Leave unset to use OPENROUTER_ED, OPENROUTER_API_KEY, or TYPESAFE_API_KEY.",
       "sensitive": true
     },
     "keepThreshold": {
@@ -55,8 +55,14 @@
     "model": {
       "type": "string",
       "title": "Jev model",
-      "description": "TypeSafe Jev model name.",
-      "default": "jev-latest"
+      "description": "Jev model slug. OpenRouter needs the versioned slug; jev-latest 404s on its decisions endpoint.",
+      "default": "typesafe/jev-1.13"
+    },
+    "baseUrl": {
+      "type": "string",
+      "title": "Decisions endpoint",
+      "description": "URL that accepts the System One request body. Default is OpenRouter's decisions endpoint; set https://api.typesafe.ai/v1/systemone for direct TypeSafe access.",
+      "default": "https://openrouter.ai/api/alpha/decisions"
     }
   }
 }
